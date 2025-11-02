@@ -305,7 +305,18 @@ export default function TPODashboard() {
 
   async function createShareLink(){
     if (!BLOB_TOKEN){ alert("환경변수 VITE_BLOB_READ_WRITE_TOKEN이 설정되어 있어야 공유 링크를 만들 수 있습니다."); return; }
-    if (cloudResults.length===0 && cloudGrades.length===0){ alert("먼저 파일을 업로드하세요."); return; }
+   // 1. 파싱된 파일(사용자가 보는 목록)이 아예 없는지 먼저 확인합니다.
+    if (resultFiles.length === 0 && gradeFiles.length === 0) {
+      alert("먼저 파일을 업로드하세요.");
+      return;
+    }
+    // 2. 파싱된 파일은 있는데, 클라우드 업로드 결과가 없는지 확인합니다. (이것이 진짜 문제!)
+    if (cloudResults.length === 0 && cloudGrades.length === 0) {
+      alert(
+        "클라우드 업로드에 실패했습니다. Vercel Blob 토큰 설정(권한 등)을 확인한 후, 페이지를 새로고침하여 파일을 다시 업로드해주세요."
+      );
+      return;
+    }
     const manifest = { version: 1, createdAt: new Date().toISOString(), results: cloudResults, grades: cloudGrades };
     const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
     const fname = `manifests/${makeId()}_manifest.json`;
