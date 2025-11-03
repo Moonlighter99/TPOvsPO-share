@@ -105,8 +105,11 @@ function inferDeptFromFilename(name = "") {
   const n = name.toLowerCase();
   if (/(^|[_-])ce([_-]|\\.|$)|computer|컴퓨터|전산/.test(n)) return "컴퓨터공학전공";
   if (/mediadesign|md_|design|디자인/.test(n)) return "미디어디자인공학전공";
-  return "단일전공";
+  if (/(^|[_-])(eee|elec|electrical|power|energy)([_-]|\.|$)|에너지전기|전기공학|에너지전기공학|전기/.test(n))  return "에너지·전기공학전공";
+  if (/energy|electrical|에너지|전기/.test(n)) return "에너지·전기공학전공";
+    return "단일전공";
 }
+
 
 // 결과 rows에 전공 주입/보정
 function ensureDept(rows, filename) {
