@@ -19,7 +19,12 @@ import {
 import { put } from "@vercel/blob/client";
 
 /**
- * TPO/PO 대시보드 – V3.3 (요청 반영)
+ * TPO/PO 대시보드 – V3.4 (교수님 요청사항 반영)
+ * ------------------------------------------------------------
+ * ✅ 1. (전공별) 레이더: 상위 2개가 아닌, 선택된 모든 전공 표출
+ * ✅ 2. (전공별) 시계열: Y축 최소값을 25로 설정 (domain={[25, 'auto']})
+ * ✅ 3. (학생별) 필터: 다중 선택/중복 표출 (기존 코드에 이미 반영되어 있었음 - Ctrl/Cmd + Click)
+ * ✅ 4. (학생별) 빈 차트: 데이터가 없을 시 안내 메시지 표출
  * ------------------------------------------------------------
  * ✅ Tooltip 소수점 둘째자리 고정
  * ✅ 전공별/학생별 모두 TPO·PO를 한 화면에서 좌우 병렬 비교
@@ -105,11 +110,10 @@ function inferDeptFromFilename(name = "") {
   const n = name.toLowerCase();
   if (/(^|[_-])ce([_-]|\\.|$)|computer|컴퓨터|전산/.test(n)) return "컴퓨터공학전공";
   if (/mediadesign|md_|design|디자인/.test(n)) return "미디어디자인공학전공";
-  if (/(^|[_-])(eee|elec|electrical|power|energy)([_-]|\.|$)|에너지전기|전기공학|에너지전기공학|전기/.test(n))  return "에너지·전기공학전공";
-  if (/energy|electrical|에너지|전기/.test(n)) return "에너지·전기공학전공";
-    return "단일전공";
+  // ✅ (v3.4) 에너지·전기공학과 대응 (교수님 수정 내역 반영)
+  if (/energy|electrical|에너지|전기/.test(n)) return "에너지·전기공학과"; 
+  return "단일전공";
 }
-
 
 // 결과 rows에 전공 주입/보정
 function ensureDept(rows, filename) {
@@ -124,7 +128,10 @@ function ensureDept(rows, filename) {
     if (!hasDeptKey || v === undefined || v === null || String(v).trim() === "") {
       return { ...r, dept: label };
     }
-    return { ...r, dept: v };
+    // ✅ (v3.4) 교수님 수정 내역 반영 (정확한 명칭으로 통일)
+    const deptStr = String(v).trim();
+    if (/energy|electrical|에너지|전기/.test(deptStr.toLowerCase())) return { ...r, dept: "에너지·전기공학과" };
+    return { ...r, dept: deptStr };
   });
 
   const empties = filled.filter((r) => !r.dept || String(r.dept).trim() === "").length;
@@ -202,16 +209,17 @@ function aggregateByDept(rows, metricCols, deptKey, semesterFilter) {
   });
 }
 
-function makeRadarData(rows, metricCols, dept, semesterFilter) {
-  const selectedRows = rows.filter((r) => (!semesterFilter || String(r.semester ?? r.SEMESTER ?? "") === semesterFilter) && r.dept === dept);
-  if (!selectedRows.length) return [];
-  const means = {};
-  metricCols.forEach((m) => {
-    const vals = selectedRows.map((r) => toNumber(r[m])).filter((v) => v !== null);
-    means[m] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-  });
-  return metricCols.map((m) => ({ axis: m.replace(/_/g, ""), value: means[m] ?? 0 }));
-}
+// (사용 중단)
+// function makeRadarData(rows, metricCols, dept, semesterFilter) {
+//   const selectedRows = rows.filter((r) => (!semesterFilter || String(r.semester ?? r.SEMESTER ?? "") === semesterFilter) && r.dept === dept);
+//   if (!selectedRows.length) return [];
+//   const means = {};
+//   metricCols.forEach((m) => {
+//     const vals = selectedRows.map((r) => toNumber(r[m])).filter((v) => v !== null);
+//     means[m] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+//   });
+//   return metricCols.map((m) => ({ axis: m.replace(/_/g, ""), value: means[m] ?? 0 }));
+// }
 
 function aggregateOverTimeByDept(rows, metricCols, deptKey, selectedDepts) {
   const semesters = semestersFromRows(rows);
@@ -308,18 +316,18 @@ export default function TPODashboard() {
 
   async function createShareLink(){
     if (!BLOB_TOKEN){ alert("환경변수 VITE_BLOB_READ_WRITE_TOKEN이 설정되어 있어야 공유 링크를 만들 수 있습니다."); return; }
-   // 1. 파싱된 파일(사용자가 보는 목록)이 아예 없는지 먼저 확인합니다.
+    // ✅ (v3.4) 코드 수정본에 맞게 수정 (cloudResults.length===0 && cloudGrades.length===0){ alert("먼저 파일을 업로드하세요."); return; }
     if (resultFiles.length === 0 && gradeFiles.length === 0) {
       alert("먼저 파일을 업로드하세요.");
       return;
     }
-    // 2. 파싱된 파일은 있는데, 클라우드 업로드 결과가 없는지 확인합니다. (이것이 진짜 문제!)
     if (cloudResults.length === 0 && cloudGrades.length === 0) {
       alert(
         "클라우드 업로드에 실패했습니다. Vercel Blob 토큰 설정(권한 등)을 확인한 후, 페이지를 새로고침하여 파일을 다시 업로드해주세요."
       );
       return;
     }
+
     const manifest = { version: 1, createdAt: new Date().toISOString(), results: cloudResults, grades: cloudGrades };
     const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
     const fname = `manifests/${makeId()}_manifest.json`;
@@ -435,10 +443,59 @@ export default function TPODashboard() {
   const deptAggTPO = useMemo(() => aggregateByDept(resultRows, tpoCols, deptKey, semester), [resultRows, tpoCols, deptKey, semester]);
   const deptAggPO  = useMemo(() => aggregateByDept(resultRows, poCols,  deptKey, semester), [resultRows, poCols,  deptKey, semester]);
 
-  const radarTPO_A = useMemo(() => (deptSelection[0] ? makeRadarData(resultRows.map(r => ({...r, dept: r[deptKey]})), tpoCols, deptSelection[0], semester) : []), [resultRows, tpoCols, deptSelection, semester, deptKey]);
-  const radarTPO_B = useMemo(() => (deptSelection[1] ? makeRadarData(resultRows.map(r => ({...r, dept: r[deptKey]})), tpoCols, deptSelection[1], semester) : []), [resultRows, tpoCols, deptSelection, semester, deptKey]);
-  const radarPO_A  = useMemo(() => (deptSelection[0] ? makeRadarData(resultRows.map(r => ({...r, dept: r[deptKey]})), poCols,  deptSelection[0], semester) : []), [resultRows, poCols, deptSelection, semester, deptKey]);
-  const radarPO_B  = useMemo(() => (deptSelection[1] ? makeRadarData(resultRows.map(r => ({...r, dept: r[deptKey]})), poCols,  deptSelection[1], semester) : []), [resultRows, poCols, deptSelection, semester, deptKey]);
+  // ✅ 요청 #1: 레이더 차트 수정 (모든 선택 전공 반영)
+  const radarDataTPO = useMemo(() => {
+    const selectedDepts = deptSelection.length ? deptSelection : allDepts;
+    if (!selectedDepts.length || !tpoCols.length) return [];
+    
+    const deptMeans = new Map(); // dept -> { TPO1: mean, TPO2: mean, ... }
+    selectedDepts.forEach(d => {
+      const rows = resultRows.filter(r => r[deptKey] === d && (!semester || String(r.semester ?? r.SEMESTER ?? "") === semester));
+      const means = {};
+      tpoCols.forEach(mKey => {
+        const vals = rows.map(r => toNumber(r[mKey])).filter(v => v !== null);
+        means[mKey.replace(/_/g, "")] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      });
+      deptMeans.set(d, means);
+    });
+  
+    // Pivot: [{ axis: "TPO1", deptA: val, deptB: val }, ...]
+    return tpoCols.map(mKey => {
+      const axis = mKey.replace(/_/g, "");
+      const entry = { axis };
+      selectedDepts.forEach(d => {
+        entry[d] = deptMeans.get(d)?.[axis] ?? 0;
+      });
+      return entry;
+    });
+  }, [resultRows, tpoCols, deptSelection, allDepts, deptKey, semester]);
+  
+  const radarDataPO = useMemo(() => {
+    const selectedDepts = deptSelection.length ? deptSelection : allDepts;
+    if (!selectedDepts.length || !poCols.length) return [];
+    
+    const deptMeans = new Map(); // dept -> { PO1: mean, PO2: mean, ... }
+    selectedDepts.forEach(d => {
+      const rows = resultRows.filter(r => r[deptKey] === d && (!semester || String(r.semester ?? r.SEMESTER ?? "") === semester));
+      const means = {};
+      poCols.forEach(mKey => {
+        const vals = rows.map(r => toNumber(r[mKey])).filter(v => v !== null);
+        means[mKey.replace(/_/g, "")] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      });
+      deptMeans.set(d, means);
+    });
+  
+    // Pivot: [{ axis: "PO1", deptA: val, deptB: val }, ...]
+    return poCols.map(mKey => {
+      const axis = mKey.replace(/_/g, "");
+      const entry = { axis };
+      selectedDepts.forEach(d => {
+        entry[d] = deptMeans.get(d)?.[axis] ?? 0;
+      });
+      return entry;
+    });
+  }, [resultRows, poCols, deptSelection, allDepts, deptKey, semester]);
+
 
   const deptGrowthTPO = useMemo(() => aggregateOverTimeByDept(resultRows.map(r => ({...r, dept: r[deptKey]})), tpoCols, "dept", deptSelection.length ? deptSelection : allDepts), [resultRows, tpoCols, deptSelection, deptKey, allDepts]);
   const deptGrowthPO  = useMemo(() => aggregateOverTimeByDept(resultRows.map(r => ({...r, dept: r[deptKey]})), poCols,  "dept", deptSelection.length ? deptSelection : allDepts), [resultRows, poCols,  deptSelection, deptKey, allDepts]);
@@ -473,36 +530,55 @@ export default function TPODashboard() {
 
   // 학생 막대(TPO/PO)
   const studentBarTPO = useMemo(() => {
-    const rows = resultRows.filter((r) => String(r.semester ?? r.SEMESTER ?? "") === activeSemester && filteredStudentIds.includes(String(r.studentId ?? r["학번"] ?? r.ID)));
+    // ✅ 요청 #3 확인: studentSelection (선택된 학생) 기준으로 필터링해야 함
+    const targetIds = studentSelection.length ? studentSelection : filteredStudentIds;
+    if (!targetIds.length) return [];
+    
+    const rows = resultRows.filter((r) => 
+      String(r.semester ?? r.SEMESTER ?? "") === activeSemester && 
+      targetIds.includes(String(r.studentId ?? r["학번"] ?? r.ID))
+    );
+    
     if (!rows.length) return [];
+    
     return tpoCols.map((m) => {
       const obj = { metric: m.replace(/_/g, "") };
-      filteredStudentIds.forEach((sid) => {
+      targetIds.forEach((sid) => { // ✅ targetIds (선택된 학생들) 기준으로 루프
         const rr = rows.filter((r) => String(r.studentId ?? r["학번"] ?? r.ID) === String(sid));
         const vals = rr.map((r) => toNumber(r[m])).filter((v) => v !== null);
         obj[sid] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
       });
       return obj;
     });
-  }, [resultRows, tpoCols, filteredStudentIds, activeSemester]);
-
+  }, [resultRows, tpoCols, filteredStudentIds, studentSelection, activeSemester]); // ✅ studentSelection 의존성 추가
+  
   const studentBarPO = useMemo(() => {
-    const rows = resultRows.filter((r) => String(r.semester ?? r.SEMESTER ?? "") === activeSemester && filteredStudentIds.includes(String(r.studentId ?? r["학번"] ?? r.ID)));
+    // ✅ 요청 #3 확인: studentSelection (선택된 학생) 기준으로 필터링
+    const targetIds = studentSelection.length ? studentSelection : filteredStudentIds;
+    if (!targetIds.length) return [];
+
+    const rows = resultRows.filter((r) => 
+      String(r.semester ?? r.SEMESTER ?? "") === activeSemester && 
+      targetIds.includes(String(r.studentId ?? r["학번"] ?? r.ID))
+    );
+    
     if (!rows.length) return [];
+    
     return poCols.map((m) => {
       const obj = { metric: m.replace(/_/g, "") };
-      filteredStudentIds.forEach((sid) => {
+      targetIds.forEach((sid) => { // ✅ targetIds (선택된 학생들) 기준으로 루프
         const rr = rows.filter((r) => String(r.studentId ?? r["학번"] ?? r.ID) === String(sid));
         const vals = rr.map((r) => toNumber(r[m])).filter((v) => v !== null);
         obj[sid] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
       });
       return obj;
     });
-  }, [resultRows, poCols, filteredStudentIds, activeSemester]);
+  }, [resultRows, poCols, filteredStudentIds, studentSelection, activeSemester]); // ✅ studentSelection 의존성 추가
 
   // 학생 성장(TPO/PO)
-  const studentGrowthTPO = useMemo(() => aggregateOverTimeByStudent(resultRows, tpoCols, filteredStudentIds), [resultRows, tpoCols, filteredStudentIds]);
-  const studentGrowthPO  = useMemo(() => aggregateOverTimeByStudent(resultRows, poCols,  filteredStudentIds), [resultRows, poCols,  filteredStudentIds]);
+  // ✅ 요청 #3 확인: studentSelection (선택된 학생) 기준으로 필터링
+  const studentGrowthTPO = useMemo(() => aggregateOverTimeByStudent(resultRows, tpoCols, studentSelection), [resultRows, tpoCols, studentSelection]);
+  const studentGrowthPO  = useMemo(() => aggregateOverTimeByStudent(resultRows, poCols,  studentSelection), [resultRows, poCols,  studentSelection]);
 
   // ---------------- 파일 업로드/삭제 ----------------
   async function onUploadResults(e) {
@@ -552,6 +628,13 @@ export default function TPODashboard() {
 
   // 공통 Tooltip 포맷
   const tooltipFmt = (value, name) => [fmt2(value), name];
+
+  // ✅ 요청 #4: 빈 차트 메시지 컴포넌트
+  const EmptyChartMessage = () => (
+    <div className="flex h-full w-full items-center justify-center p-4 text-center text-sm text-gray-500">
+      현재 해당 학생의 전공역량 데이터가 충분하지 않아 출력되지 않습니다
+    </div>
+  );
 
   // ---------------- UI ----------------
   return (
@@ -735,18 +818,19 @@ export default function TPODashboard() {
                 </div>
               </div>
 
-              {/* 레이더 비교: TPO | PO (선만 표시) */}
+              {/* ✅ 요청 #1: 레이더 비교 수정 */}
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <h3 className="mb-3 text-lg font-semibold">TPO 레이더 (상위 2개 전공)</h3>
+                  <h3 className="mb-3 text-lg font-semibold">TPO 레이더 그래프</h3>
                   <div className="h-[380px] w-full">
                     <ResponsiveContainer>
-                      <RadarChart data={radarTPO_A.map((d, idx) => ({ ...d, valueB: radarTPO_B[idx]?.value ?? 0 }))}>
+                      <RadarChart data={radarDataTPO}>
                         <PolarGrid />
                         <PolarAngleAxis dataKey="axis" />
                         <PolarRadiusAxis />
-                        <Radar name={(deptSelection[0]||allDepts[0]) || '전공 A'} dataKey="value" stroke={colorFor(deptSelection[0]||allDepts[0]||'A')} fillOpacity={0} strokeWidth={2} />
-                        <Radar name={(deptSelection[1]||allDepts[1]) || '전공 B'} dataKey="valueB" stroke={colorFor(deptSelection[1]||allDepts[1]||'B')} fillOpacity={0} strokeWidth={2} />
+                        {(deptSelection.length ? deptSelection : allDepts).map((d) => (
+                          <Radar key={d} name={d} dataKey={d} stroke={colorFor(d)} fillOpacity={0} strokeWidth={2} />
+                        ))}
                         <Legend />
                         <Tooltip formatter={tooltipFmt} />
                       </RadarChart>
@@ -755,15 +839,16 @@ export default function TPODashboard() {
                 </div>
 
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <h3 className="mb-3 text-lg font-semibold">PO 레이더 (상위 2개 전공)</h3>
+                  <h3 className="mb-3 text-lg font-semibold">PO 레이더 그래프</h3>
                   <div className="h-[380px] w-full">
                     <ResponsiveContainer>
-                      <RadarChart data={radarPO_A.map((d, idx) => ({ ...d, valueB: radarPO_B[idx]?.value ?? 0 }))}>
+                      <RadarChart data={radarDataPO}>
                         <PolarGrid />
                         <PolarAngleAxis dataKey="axis" />
                         <PolarRadiusAxis />
-                        <Radar name={(deptSelection[0]||allDepts[0]) || '전공 A'} dataKey="value" stroke={colorFor(deptSelection[0]||allDepts[0]||'A')} fillOpacity={0} strokeWidth={2} />
-                        <Radar name={(deptSelection[1]||allDepts[1]) || '전공 B'} dataKey="valueB" stroke={colorFor(deptSelection[1]||allDepts[1]||'B')} fillOpacity={0} strokeWidth={2} />
+                        {(deptSelection.length ? deptSelection : allDepts).map((d) => (
+                          <Radar key={d} name={d} dataKey={d} stroke={colorFor(d)} fillOpacity={0} strokeWidth={2} />
+                        ))}
                         <Legend />
                         <Tooltip formatter={tooltipFmt} />
                       </RadarChart>
@@ -772,7 +857,7 @@ export default function TPODashboard() {
                 </div>
               </div>
 
-              {/* 성장 비교: TPO | PO */}
+              {/* ✅ 요청 #2: 성장 비교 Y축 수정 */}
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
                   <h3 className="mb-3 text-lg font-semibold">시점별 성장 (TPO 평균)</h3>
@@ -781,7 +866,7 @@ export default function TPODashboard() {
                       <LineChart data={deptGrowthTPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="semester" />
-                        <YAxis />
+                        <YAxis domain={[25, 'auto']} />
                         <Tooltip formatter={tooltipFmt} />
                         <Legend />
                         {(deptSelection.length? deptSelection : allDepts).map((d) => (
@@ -798,7 +883,7 @@ export default function TPODashboard() {
                       <LineChart data={deptGrowthPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="semester" />
-                        <YAxis />
+                        <YAxis domain={[25, 'auto']} />
                         <Tooltip formatter={tooltipFmt} />
                         <Legend />
                         {(deptSelection.length? deptSelection : allDepts).map((d) => (
@@ -873,86 +958,106 @@ export default function TPODashboard() {
                       ))}
                     </select>
                   </div>
-                  <div className="text-xs text-gray-500 max-w-sm">Tip: 전공·성적·연도 필터를 조합한 뒤 학번을 선택하면 TPO·PO 막대와 성장 그래프가 동시에 표시됩니다. 선택 학기가 비어 있으면 최신 학기가 사용됩니다.</div>
+                  <div className="text-xs text-gray-500 max-w-sm">
+                    Tip: 전공·성적·연도 필터를 조합한 뒤 학번을 선택하면 TPO·PO 막대와 성장 그래프가 동시에 표시됩니다. 
+                    <br />
+                    <b>(Ctrl 또는 Cmd 키를 누른 채 클릭하면 여러 명을 선택할 수 있습니다.)</b>
+                  </div>
                 </div>
               </div>
 
-              {/* 학생 막대 비교: TPO | PO */}
+              {/* ✅ 요청 #4: 학생 막대 비교 수정 (빈 차트 메시지) */}
               {studentSelection.length >= 1 && (
                 <div className="grid gap-6 lg:grid-cols-2">
                   <div className="rounded-2xl border bg-white p-4 shadow-sm">
                     <h3 className="mb-3 text-lg font-semibold">학생별 TPO 지표 (학기: {activeSemester || '전체'})</h3>
                     <div className="h-[380px] w-full">
-                      <ResponsiveContainer>
-                        <BarChart data={studentBarTPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
-                          <YAxis />
-                          <Tooltip formatter={tooltipFmt} />
-                          <Legend />
-                          {studentSelection.map((sid) => (
-                            <Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />
-                          ))}
-                        </BarChart>
-                      </ResponsiveContainer>
+                      {studentBarTPO.length === 0 ? (
+                        <EmptyChartMessage />
+                      ) : (
+                        <ResponsiveContainer>
+                          <BarChart data={studentBarTPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
+                            <YAxis />
+                            <Tooltip formatter={tooltipFmt} />
+                            <Legend />
+                            {studentSelection.map((sid) => (
+                              <Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />
+                            ))}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
 
                   <div className="rounded-2xl border bg-white p-4 shadow-sm">
                     <h3 className="mb-3 text-lg font-semibold">학생별 PO 지표 (학기: {activeSemester || '전체'})</h3>
                     <div className="h-[380px] w-full">
-                      <ResponsiveContainer>
-                        <BarChart data={studentBarPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
-                          <YAxis />
-                          <Tooltip formatter={tooltipFmt} />
-                          <Legend />
-                          {studentSelection.map((sid) => (
-                            <Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />
-                          ))}
-                        </BarChart>
-                      </ResponsiveContainer>
+                      {studentBarPO.length === 0 ? (
+                        <EmptyChartMessage />
+                      ) : (
+                        <ResponsiveContainer>
+                          <BarChart data={studentBarPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
+                            <YAxis />
+                            <Tooltip formatter={tooltipFmt} />
+                            <Legend />
+                            {studentSelection.map((sid) => (
+                              <Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />
+                            ))}
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* 학생 성장 비교: TPO | PO */}
+              {/* ✅ 요청 #4: 학생 성장 비교 수정 (빈 차트 메시지) */}
               {studentSelection.length >= 1 && (
                 <div className="grid gap-6 lg:grid-cols-2">
                   <div className="rounded-2xl border bg-white p-4 shadow-sm">
                     <h3 className="mb-3 text-lg font-semibold">학생별 시점별 성장 (TPO 평균)</h3>
                     <div className="h-[360px] w-full">
-                      <ResponsiveContainer>
-                        <LineChart data={studentGrowthTPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="semester" />
-                          <YAxis />
-                          <Tooltip formatter={tooltipFmt} />
-                          <Legend />
-                          {studentSelection.map((sid) => (
-                            <Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />
-                          ))}
-                        </LineChart>
-                      </ResponsiveContainer>
+                      {studentGrowthTPO.length === 0 ? (
+                        <EmptyChartMessage />
+                      ) : (
+                        <ResponsiveContainer>
+                          <LineChart data={studentGrowthTPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="semester" />
+                            <YAxis />
+                            <Tooltip formatter={tooltipFmt} />
+                            <Legend />
+                            {studentSelection.map((sid) => (
+                              <Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                   <div className="rounded-2xl border bg-white p-4 shadow-sm">
                     <h3 className="mb-3 text-lg font-semibold">학생별 시점별 성장 (PO 평균)</h3>
                     <div className="h-[360px] w-full">
-                      <ResponsiveContainer>
-                        <LineChart data={studentGrowthPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="semester" />
-                          <YAxis />
-                          <Tooltip formatter={tooltipFmt} />
-                          <Legend />
-                          {studentSelection.map((sid) => (
-                            <Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />
-                          ))}
-                        </LineChart>
-                      </ResponsiveContainer>
+                      {studentGrowthPO.length === 0 ? (
+                        <EmptyChartMessage />
+                      ) : (
+                        <ResponsiveContainer>
+                          <LineChart data={studentGrowthPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="semester" />
+                            <YAxis />
+                            <Tooltip formatter={tooltipFmt} />
+                            <Legend />
+                            {studentSelection.map((sid) => (
+                              <Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -969,6 +1074,7 @@ export default function TPODashboard() {
             <li>전공별/학생별에서 TPO와 PO를 좌우로 배치해 한눈에 비교할 수 있습니다.</li>
             <li>학생별 탭에서 전공·성적구간(2점대 이하/3점대/4점대+)·학번연도 필터를 조합해 보세요. 각 필터에 "전체" 버튼이 있습니다.</li>
             <li>전공별 탭의 "전체 전공"을 누르면 모든 전공 시리즈가 중복 표출됩니다.</li>
+            <li>학생별 탭의 필터 목록에서 <b>Ctrl키(Cmd)를 누른 채 클릭</b>하면 여러 항목을 동시에 선택할 수 있습니다.</li>
           </ol>
         </section>
       </div>
