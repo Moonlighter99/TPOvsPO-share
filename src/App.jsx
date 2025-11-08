@@ -818,17 +818,3 @@ export default function TPODashboard() {
             </section>
           )
         )}
-
-        {/* 도움말 */}
-        <section className="mt-6 rounded-2xl border bg-white p-4 shadow-sm">
-          <h3 className="mb-2 text-lg font-semibold">사용 팁</h3>
-          <ol className="list-decimal pl-5 text-sm text-gray-700">
-            <li>전공 미식별 레코드는 자동 제외되어 ‘단일전공’이 나타나지 않습니다.</li>
-            <li>EE/전력/에너지/전기/Power 별칭은 모두 <b>전력응용시스템공학</b>으로 통일됩니다.</li>
-            <li>배포 후 최초 로딩 시 캐시를 비활성화하고 새로고침하면 최신 데이터가 보입니다.</li>
-          </ol>
-        </section>
-      </div>
-    </div>
-  );
-}
