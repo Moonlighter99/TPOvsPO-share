@@ -754,7 +754,7 @@ export default function TPODashboard() {
                         <ResponsiveContainer>
                           <BarChart data={studentBarTPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
                             <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
-                            <YAxis domain={[40, 100]} />
+                            <YAxis domain={[0, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />))}
                           </BarChart>
@@ -770,7 +770,7 @@ export default function TPODashboard() {
                         <ResponsiveContainer>
                           <BarChart data={studentBarPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
                             <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
-                            <YAxis domain={[40, 100]} />
+                            <YAxis domain={[0, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />))}
                           </BarChart>
@@ -790,7 +790,7 @@ export default function TPODashboard() {
                         <ResponsiveContainer>
                           <LineChart data={studentGrowthTPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
                             <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" />
-                            <YAxis domain={[40, 100]} />
+                            <YAxis domain={[0, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />))}
                           </LineChart>
@@ -805,7 +805,7 @@ export default function TPODashboard() {
                         <ResponsiveContainer>
                           <LineChart data={studentGrowthPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
                             <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" />
-                            <YAxis domain={[40, 100]} />
+                            <YAxis domain={[0, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />))}
                           </LineChart>
