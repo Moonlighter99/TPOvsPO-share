@@ -2,7 +2,7 @@
   "redirects": [
     {
       "source": "/v2/madeby2vs0",
-      "destination": "/?manifest=https%3A%2F%2Fy12v2k45phxivckz.public.blob.vercel-storage.com%2Fmanifest_2025-11-08.json&v=20251108-EE",
+      "destination": "/?manifest=https://y12v2k45phxivckz.public.blob.vercel-storage.com/manifest_2025-11-08.json",
       "permanent": false
     }
   ]
