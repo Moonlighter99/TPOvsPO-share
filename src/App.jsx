@@ -138,18 +138,6 @@ if (/(^|[^a-z])ee([^a-z]|$)|energy|electrical|power|전력응용시스템|전력
 return { ...r, dept: deptStr };
 
   });
-
-function canonMajor(raw = "") {
-  const s = String(raw).trim().toLowerCase();
-  if (!s) return "";
-  if (/(^|[_\s.-])ee([_\s.-]|$)|energy|electrical|power|전력응용시스템|전력|에너지|전기/.test(s))
-    return "전력응용시스템공학";
-  if (/mediadesign|design|미디어/.test(s)) return "미디어디자인공학전공";
-  if (/(^|[_\s.-])ce([_\s.-]|$)|computer|컴퓨터|전산/.test(s)) return "컴퓨터공학전공";
-  return raw.trim();
-}
-// inferDeptFromFilename / ensureDept 양쪽에서 canonMajor(...) 사용
-
   
   const empties = filled.filter((r) => !r.dept || String(r.dept).trim() === "").length;
   if (empties / filled.length >= 0.7) return filled.map((r) => ({ ...r, dept: label }));
