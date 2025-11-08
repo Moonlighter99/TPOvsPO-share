@@ -108,12 +108,14 @@ function normalizeRows(rows) {
 // 파일명에서 전공 라벨 추정
 function inferDeptFromFilename(name = "") {
   const n = name.toLowerCase();
-  if (/(^|[_-])ce([_-]|\\.|$)|computer|컴퓨터|전산/.test(n)) return "컴퓨터공학전공";
+  if (/(^|[_-])ce([_-]|\.|$)|computer|컴퓨터|전산/.test(n)) return "컴퓨터공학전공";
   if (/mediadesign|md_|design|디자인/.test(n)) return "미디어디자인공학전공";
-  // ✅ (v3.4) 에너지·전기공학과 대응 (교수님 수정 내역 반영)
-  if (/energy|electrical|에너지|전기/.test(n)) return "에너지·전기공학과"; 
+  // ✅ EE/전력응용시스템 패턴 인식 → 새 표준 라벨
+  if (/(^|[_-])ee([_-]|\.|$)|energy|electrical|power|전력응용시스템|전력|에너지|전기/.test(n))
+    return "전력응용시스템공학";
   return "단일전공";
 }
+
 
 // 결과 rows에 전공 주입/보정
 function ensureDept(rows, filename) {
@@ -129,11 +131,26 @@ function ensureDept(rows, filename) {
       return { ...r, dept: label };
     }
     // ✅ (v3.4) 교수님 수정 내역 반영 (정확한 명칭으로 통일)
-    const deptStr = String(v).trim();
-    if (/energy|electrical|에너지|전기/.test(deptStr.toLowerCase())) return { ...r, dept: "에너지·전기공학과" };
-    return { ...r, dept: deptStr };
+ const deptStr = String(v).trim();
+const d = deptStr.toLowerCase();
+if (/(^|[^a-z])ee([^a-z]|$)|energy|electrical|power|전력응용시스템|전력|에너지|전기/.test(d))
+  return { ...r, dept: "전력응용시스템공학" };
+return { ...r, dept: deptStr };
+
   });
 
+function canonMajor(raw = "") {
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return "";
+  if (/(^|[_\s.-])ee([_\s.-]|$)|energy|electrical|power|전력응용시스템|전력|에너지|전기/.test(s))
+    return "전력응용시스템공학";
+  if (/mediadesign|design|미디어/.test(s)) return "미디어디자인공학전공";
+  if (/(^|[_\s.-])ce([_\s.-]|$)|computer|컴퓨터|전산/.test(s)) return "컴퓨터공학전공";
+  return raw.trim();
+}
+// inferDeptFromFilename / ensureDept 양쪽에서 canonMajor(...) 사용
+
+  
   const empties = filled.filter((r) => !r.dept || String(r.dept).trim() === "").length;
   if (empties / filled.length >= 0.7) return filled.map((r) => ({ ...r, dept: label }));
   return filled;
