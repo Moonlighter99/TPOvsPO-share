@@ -483,6 +483,8 @@ export default function TPODashboard() {
           <div>
             <h1 className="text-2xl font-bold">전공역량 대시보드 (TPO & PO 동시 비교)</h1>
             <p className="text-sm text-gray-500">전공/학생 단위 비교, 시점별 성장, 다중 필터(전공·성적·연도)를 제공합니다.</p>
+            <p className="mt-1 text-lg text-blue-600 font-semibold"> 웹 제작자: 한국공학대학교 전공교육혁신센터 연구교수 이대영</p>
+
           </div>
           <div className="flex rounded-full border overflow-hidden">
             <button onClick={() => setTabScope('DEPT')}    className={`px-3 py-1 ${tabScope==='DEPT'   ?'bg-gray-900 text-white':'bg-white'}`}>전공별</button>
