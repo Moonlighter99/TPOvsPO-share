@@ -1,12 +1,9 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
   "redirects": [
     {
-      "source": "/view/madeby2vs0",
-      "destination": "https://tp-ovs-po-share-8p7dkjnu4-daeyeong-lees-projects.vercel.app/?manifest=https://y12v2k45phxivckz.public.blob.vercel-storage.com/manifest.json",
-      "permanent": true
+      "source": "/v2/madeby2vs0",
+      "destination": "/?manifest=https%3A%2F%2Fy12v2k45phxivckz.public.blob.vercel-storage.com%2Fmanifest_2025-11-08.json&v=20251108-EE",
+      "permanent": false
     }
   ]
 }
