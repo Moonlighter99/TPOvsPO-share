@@ -483,7 +483,7 @@ export default function TPODashboard() {
           <div>
             <h1 className="text-2xl font-bold">전공역량 대시보드 (TPO & PO 동시 비교)</h1>
             <p className="text-sm text-gray-500">전공/학생 단위 비교, 시점별 성장, 다중 필터(전공·성적·연도)를 제공합니다.</p>
-            <p className="mt-1 text-lg text-blue-600 font-semibold"> 웹 제작자: 한국공학대학교 전공교육혁신센터 연구교수 이대영</p>
+            <p className="mt-1 text-lg text-blue-600 font-semibold"> 웹 제작자: 한국공학대학교 전공교육혁신센터 연구교수 이대영, 내조: 인천대 홍박사 >_< </p>
 
           </div>
           <div className="flex rounded-full border overflow-hidden">
@@ -495,11 +495,11 @@ export default function TPODashboard() {
         {/* 업로드 & 파일관리 */}
         <section className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-lg font-semibold">① 결과 파일 업로드 (TPO/PO 혼합 허용)</h2>
+            <h2 className="mb-2 text-lg font-semibold">① 결과 파일 업로드 (TPO/PO 역량점수)</h2>
             <input type="file" accept=".csv,.xlsx,.xls" multiple onChange={onUploadResults} className="block w-full rounded-lg border p-2" />
-            <p className="mt-2 text-xs text-gray-500">전공 열이 없으면 파일명(CE/MediaDesign/EE 패턴)으로 자동 할당합니다.</p>
+            <p className="mt-2 text-xs text-gray-500">데이터는 자동으로 업로드 되게끔 반영하였으니 넣을 필요가 없어요^^</p>
             <div className="mt-3 border-t pt-3">
-              <div className="text-sm font-medium mb-1">업로드된 결과 파일</div>
+              <div className="text-sm font-medium mb-1">업로드된 학생 개별 전공역량 파일</div>
               {resultFiles.length === 0 ? (
                 <div className="text-xs text-gray-500">(없음)</div>
               ) : (
@@ -516,8 +516,9 @@ export default function TPODashboard() {
           </div>
 
           <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-lg font-semibold">② 성적 데이터 업로드 (선택)</h2>
+            <h2 className="mb-2 text-lg font-semibold">② 성적 데이터 업로드</h2>
             <input type="file" accept=".csv,.xlsx,.xls" multiple onChange={onUploadGrades} className="block w-full rounded-lg border p-2" />
+            <p className="mt-2 text-xs text-gray-500"> 성적데이터는 크기가 커서 업로드 시간이 걸리니 10초 정도만 기다려주세요. </p>
             <div className="mt-3 border-t pt-3">
               <div className="text-sm font-medium mb-1">업로드된 성적 파일</div>
               {gradeFiles.length === 0 ? (
@@ -541,14 +542,14 @@ export default function TPODashboard() {
         {/* 데이터 상태 */}
         <section className="mt-6 grid gap-4 sm:grid-cols-3">
           <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <div className="text-sm text-gray-500">결과 레코드</div>
+            <div className="text-sm text-gray-500">학생별 전공역량 데이터 값(열 )</div>
             <div className="text-2xl font-bold">{resultRows.length.toLocaleString()}</div>
-            <div className="mt-2 text-xs text-gray-500">PO 열 {poCols.length}개 · TPO 열 {tpoCols.length}개 감지</div>
+            <div className="mt-2 text-xs text-gray-500">PO 지표 {poCols.length}개 · TPO 지표 {tpoCols.length}개가 인식되었습니다.</div>
           </div>
           <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <div className="text-sm text-gray-500">성적 레코드</div>
+            <div className="text-sm text-gray-500">학과 단위 성적 데이터 값(열) </div>
             <div className="text-2xl font-bold">{gradeRows.length.toLocaleString()}</div>
-            <div className="mt-2 text-xs text-gray-500">(GPA 필터 사용 가능)</div>
+            <div className="mt-2 text-xs text-gray-500">(이게 있어야 GPA 필터 사용 가능!)</div>
           </div>
           <div className="rounded-2xl border bg-white p-4 shadow-sm">
             <div className="text-sm text-gray-500">전공 수</div>
@@ -738,10 +739,10 @@ export default function TPODashboard() {
                       ))}
                     </select>
                   </div>
-                  <div className="text-xs text-gray-500 max-w-sm">
-                    Tip: 전공·성적·연도 필터를 조합한 뒤 학번을 선택하면 TPO·PO 막대와 성장 그래프가 동시에 표시됩니다.
-                    <br /><b>(Ctrl 또는 Cmd 키로 다중 선택)</b>
-                    <br />검색창에 일부만 입력해도 해당 패턴이 포함된 학번이 목록에 표시됩니다.
+                  <div className="text-xs text-red-500 max-w-sm">
+                    Tip: 전공·성적·연도 필터를 조합한 뒤 학번을 선택하면 TPO·PO 막대와 성장 그래프가 중복하여 동시에 표시됩니다. 
+                    <br /><b>(ctrl, cmd 키를 눌러서 다중비교 가능)</b>
+                    <br />검색창에 일부만 입력해도 해당 값이 포함된 학번이 목록에 표시됩니다.
                   </div>
                 </div>
               </div>
