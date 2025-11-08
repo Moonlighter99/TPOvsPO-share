@@ -1,11 +1,10 @@
-// App.jsx — V3.5 (EE 리네임 & '단일전공' 제거 패치)
+// src/App.jsx — V3.6 (클라우드 공유 제거 + 축 고정 + 학번 부분검색)
 import React, { useMemo, useState, useEffect } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
   LineChart, Line,
 } from "recharts";
-import { put } from "@vercel/blob/client";
 
 /** 유틸 */
 const toNumber = (v) => {
@@ -74,7 +73,7 @@ function normalizeRows(rows) {
   });
 }
 
-/** 전공 표준화: 별칭 → 표준 라벨, 모르면 ""(공백 반환) */
+/** 전공 표준화 */
 function canonMajor(raw = "") {
   const s = String(raw).trim()
     .normalize("NFC")
@@ -82,42 +81,33 @@ function canonMajor(raw = "") {
     .replace(/[∙•·]/g, "·")
     .toLowerCase();
 
-  if (!s || /단일\s*전공/.test(s)) return ""; // '단일전공'은 미식별 → 공백 처리
+  if (!s || /단일\s*전공/.test(s)) return "";
   if (/(^|[_\s.-])ce([_\s.-]|$)|computer|컴퓨터|전산/.test(s)) return "컴퓨터공학전공";
   if (/mediadesign|md_|design|미디어/.test(s)) return "미디어디자인공학전공";
   if (/(^|[_\s.-])ee([_\s.-]|$)|energy|electrical|power|전력응용시스템|전력|에너지|전기/.test(s))
     return "전력응용시스템공학";
-  return ""; // 모르면 공백
+  return "";
 }
 
-/** 파일명에서 전공 추정(실패 시 공백 반환) */
+/** 파일명에서 전공 추정 */
 function inferDeptFromFilename(name = "") {
   const n = String(name).toLowerCase();
   if (/(^|[_-])ce([_-]|\.|$)|computer|컴퓨터|전산/.test(n)) return "컴퓨터공학전공";
   if (/mediadesign|md_|design|디자인/.test(n)) return "미디어디자인공학전공";
   if (/(^|[_-])ee([_-]|\.|$)|energy|electrical|power|전력응용시스템|전력|에너지|전기/.test(n)) return "전력응용시스템공학";
-  return ""; // ❗ 단일전공 라벨을 더 이상 넣지 않음
+  return "";
 }
 
-/** 결과 rows에 전공 주입/보정
- *  - 전공열 → canonMajor
- *  - 실패 시 파일명 추정
- *  - 그래도 실패면 dept="" + __unknown_major__ 플래그
- */
+/** 전공 주입/보정 */
 function ensureDept(rows, filename) {
   if (!rows.length) return rows;
-
-  const keysUnion = new Set();
-  rows.forEach((r) => Object.keys(r).forEach((k) => keysUnion.add(k)));
-  const hasDeptKey = Array.from(keysUnion).some((k) => norm(k) === "DEPT");
-
   const inferred = inferDeptFromFilename(filename);
   return rows.map((r) => {
     const raw =
       r.dept ?? r["학과"] ?? r["전공"] ?? r["전공명"] ?? r["DEPARTMENT"] ?? r["MAJOR"] ?? r["학부"] ?? "";
     let dept = canonMajor(raw);
     if (!dept) dept = inferred;
-    if (!dept) return { ...r, dept: "", __unknown_major__: true }; // 미식별은 공백 처리
+    if (!dept) return { ...r, dept: "", __unknown_major__: true };
     return { ...r, dept };
   });
 }
@@ -141,6 +131,24 @@ async function parseFile(file) {
     return normalizeRows(json);
   }
   throw new Error("지원하지 않는 파일 형식입니다. CSV 또는 XLSX를 사용하세요.");
+}
+
+async function parseRemote(url){
+  const u = url.toLowerCase();
+  if (u.endsWith(".csv")){
+    const text = await fetch(url, { cache: "no-store" }).then(r=>r.text());
+    const PapaMod = await import("papaparse"); const Papa = PapaMod.default ?? PapaMod;
+    const { data } = (Papa.parse ? Papa : Papa.default).parse(text, { header: true, skipEmptyLines: true });
+    return normalizeRows(data);
+  } else if (u.endsWith(".xlsx") || u.endsWith(".xls")){
+    const buf = await fetch(url, { cache: "no-store" }).then(r=>r.arrayBuffer());
+    const XLSX = await import("xlsx"); const wb = XLSX.read(buf, { type: "array" });
+    const sheet = wb.Sheets[wb.SheetNames[0]]; const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    return normalizeRows(json);
+  } else if (u.endsWith(".json")){
+    return fetch(url, { cache: "no-store" }).then(r=>r.json());
+  }
+  throw new Error("지원하지 않는 원격 파일 형식입니다.");
 }
 
 /** 메트릭 추출/집계 */
@@ -244,50 +252,6 @@ const colorFor = (key) => { if (!colorMap.has(key)) colorMap.set(key, PALETTE[co
 
 /** 메인 */
 export default function TPODashboard() {
-  // Blob
-  const BLOB_TOKEN = import.meta.env.VITE_BLOB_READ_WRITE_TOKEN || "";
-  const [cloudResults, setCloudResults] = useState([]);
-  const [cloudGrades, setCloudGrades] = useState([]);
-  const [shareURL, setShareURL] = useState("");
-  const [manifestURL, setManifestURL] = useState("");
-
-  function makeId(len=8){ const chars="abcdefghijklmnopqrstuvwxyz0123456789"; let s=""; for (let i=0;i<len;i++) s+=chars[Math.floor(Math.random()*chars.length)]; return s; }
-  async function uploadToBlob(file, folder="files"){
-    if (!BLOB_TOKEN) return null;
-    try{ const pathname = `${folder}/${Date.now()}_${file.name}`; const res = await put(pathname, file, { access: "public", token: BLOB_TOKEN }); return { name: file.name, url: res.url }; }
-    catch(e){ console.error("Blob upload failed:", e); return null; }
-  }
-  async function createShareLink(){
-    if (!BLOB_TOKEN){ alert("환경변수 VITE_BLOB_READ_WRITE_TOKEN이 설정되어 있어야 공유 링크를 만들 수 있습니다."); return; }
-    if (resultFiles.length === 0 && gradeFiles.length === 0) { alert("먼저 파일을 업로드하세요."); return; }
-    if (cloudResults.length === 0 && cloudGrades.length === 0) { alert("클라우드 업로드에 실패했습니다. 토큰/권한을 확인하세요."); return; }
-    const manifest = { version: 1, createdAt: new Date().toISOString(), results: cloudResults, grades: cloudGrades };
-    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" });
-    const fname = `manifests/${makeId()}_manifest.json`;
-    const res = await put(fname, blob, { access: "public", token: BLOB_TOKEN });
-    setManifestURL(res.url);
-    const link = `${window.location.origin}/?manifest=${encodeURIComponent(res.url)}`;
-    setShareURL(link);
-    try{ await navigator.clipboard.writeText(link); } catch(_){}
-  }
-  async function parseRemote(url){
-    const u = url.toLowerCase();
-    if (u.endsWith(".csv")){
-      const text = await fetch(url, { cache: "no-store" }).then(r=>r.text());
-      const PapaMod = await import("papaparse"); const Papa = PapaMod.default ?? PapaMod;
-      const { data } = (Papa.parse ? Papa : Papa.default).parse(text, { header: true, skipEmptyLines: true });
-      return normalizeRows(data);
-    } else if (u.endsWith(".xlsx") || u.endsWith(".xls")){
-      const buf = await fetch(url, { cache: "no-store" }).then(r=>r.arrayBuffer());
-      const XLSX = await import("xlsx"); const wb = XLSX.read(buf, { type: "array" });
-      const sheet = wb.Sheets[wb.SheetNames[0]]; const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-      return normalizeRows(json);
-    } else if (u.endsWith(".json")){
-      return fetch(url, { cache: "no-store" }).then(r=>r.json());
-    }
-    throw new Error("지원하지 않는 원격 파일 형식입니다.");
-  }
-
   // 업로드 상태
   const [resultFiles, setResultFiles] = useState([]); // [{name, rows}]
   const [gradeFiles, setGradeFiles]   = useState([]); // [{name, rows}]
@@ -299,6 +263,7 @@ export default function TPODashboard() {
   const [tabScope, setTabScope] = useState("DEPT");
   const [deptSelection, setDeptSelection] = useState([]);
   const [studentSelection, setStudentSelection] = useState([]);
+  const [studentSearch, setStudentSearch] = useState(""); // 학번 부분검색
 
   const { poCols, tpoCols } = useMemo(() => extractMetrics(resultRows), [resultRows]);
 
@@ -311,7 +276,7 @@ export default function TPODashboard() {
     return found || "dept";
   }, [resultRows]);
 
-  // 전공 목록(공백/미식별/단일전공 제거)
+  // 전공 목록
   const allDepts = useMemo(() => {
     return unique(
       resultRows
@@ -337,7 +302,6 @@ export default function TPODashboard() {
       if (manifest){
         try{
           const man = await parseRemote(manifest);
-          setManifestURL(manifest);
           if (Array.isArray(man.results)){
             const parsedResults = await Promise.all(man.results.map(async (f)=>{
               const rows = await parseRemote(f.url);
@@ -349,12 +313,10 @@ export default function TPODashboard() {
               return { name: f.name, rows: ensured };
             }));
             setResultFiles(parsedResults);
-            setCloudResults(man.results);
           }
           if (Array.isArray(man.grades)){
             const parsedGrades = await Promise.all(man.grades.map(async (f)=>({ name: f.name, rows: await parseRemote(f.url) })));
             setGradeFiles(parsedGrades);
-            setCloudGrades(man.grades);
           }
         }catch(e){
           console.error(e);
@@ -415,7 +377,8 @@ export default function TPODashboard() {
 
   // 학생 영역
   const allStudentsIds = allStudents;
-  const latestSemester = allSemesters[allSemesters.length - 1] || "";
+  const allSemestersList = allSemesters;
+  const latestSemester = allSemestersList[allSemestersList.length - 1] || "";
   const activeSemester = semester || latestSemester;
   const [studentDeptFilter, setStudentDeptFilter] = useState([]);
   const [gpaBuckets, setGpaBuckets] = useState([]);
@@ -434,6 +397,13 @@ export default function TPODashboard() {
     if (yearFilter.length) { const years = new Set(yearFilter); ids = ids.filter((sid) => years.has(String(sid).slice(0, 4))); }
     return ids;
   }, [allStudentsIds, resultRows, deptKey, studentDeptFilter, gpaBuckets, yearFilter, gpaIndex]);
+
+  // 학번 부분검색 반영 목록
+  const shownStudentIds = useMemo(() => {
+    const q = studentSearch.trim();
+    if (!q) return filteredStudentIds;
+    return filteredStudentIds.filter((sid) => String(sid).includes(q));
+  }, [filteredStudentIds, studentSearch]);
 
   const studentBarTPO = useMemo(() => {
     const targetIds = studentSelection.length ? studentSelection : filteredStudentIds;
@@ -485,11 +455,6 @@ export default function TPODashboard() {
         return { name: file.name, rows: ensured };
       }));
       setResultFiles((prev) => prev.concat(parsed));
-      if (BLOB_TOKEN){
-        const uploads = await Promise.all(files.map(async (file)=> await uploadToBlob(file, 'results')));
-        const ok = uploads.filter(Boolean);
-        if (ok.length) setCloudResults((prev)=> prev.concat(ok));
-      }
     } catch (err) { setError(err.message || String(err)); }
   }
   async function onUploadGrades(e) {
@@ -498,11 +463,6 @@ export default function TPODashboard() {
       const files = Array.from(e.target.files || []);
       const parsed = await Promise.all(files.map(async (file) => ({ name: file.name, rows: await parseFile(file) })));
       setGradeFiles((prev) => prev.concat(parsed));
-      if (BLOB_TOKEN){
-        const uploads = await Promise.all(files.map(async (file)=> await uploadToBlob(file, 'grades')));
-        const ok = uploads.filter(Boolean);
-        if (ok.length) setCloudGrades((prev)=> prev.concat(ok));
-      }
     } catch (err) { setError(err.message || String(err)); }
   }
   function removeResultFile(name) { setResultFiles((prev) => prev.filter((f) => f.name !== name)); }
@@ -572,17 +532,6 @@ export default function TPODashboard() {
               )}
             </div>
           </div>
-
-          <div className="rounded-2xl border bg-white p-4 shadow-sm">
-            <h2 className="mb-2 text-lg font-semibold">③ 클라우드 공유(선택)</h2>
-            <div className="text-sm text-gray-600">
-              <div className="mb-2">Vercel Blob에 저장하여 <b>공유 링크</b>를 생성합니다.</div>
-              <div className="mb-2">환경변수 <code>VITE_BLOB_READ_WRITE_TOKEN</code> 필요</div>
-              <button className="rounded border px-3 py-1 text-sm" onClick={createShareLink}>공유 링크 만들기</button>
-              {shareURL && (<div className="mt-2 text-xs break-all">공유 링크: <a className="text-blue-600 underline" href={shareURL} target="_blank" rel="noreferrer">{shareURL}</a></div>)}
-              {manifestURL && (<div className="mt-1 text-xs break-all text-gray-500">manifest: {manifestURL}</div>)}
-            </div>
-          </div>
         </section>
 
         {error && <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-red-700">{error}</div>}
@@ -639,7 +588,10 @@ export default function TPODashboard() {
                   <div className="h-[380px] w-full">
                     <ResponsiveContainer>
                       <BarChart data={deptAggTPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
-                        <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} /><YAxis />
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
+                        {/* 고정축 40~100 */}
+                        <YAxis domain={[40, 100]} />
                         <Tooltip formatter={tooltipFmt} /><Legend />
                         {(deptSelection.length? deptSelection : allDepts).map((d) => (<Bar key={d} dataKey={d} barSize={22} fill={colorFor(d)} />))}
                       </BarChart>
@@ -651,7 +603,10 @@ export default function TPODashboard() {
                   <div className="h-[380px] w-full">
                     <ResponsiveContainer>
                       <BarChart data={deptAggPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
-                        <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} /><YAxis />
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
+                        {/* 고정축 40~100 */}
+                        <YAxis domain={[40, 100]} />
                         <Tooltip formatter={tooltipFmt} /><Legend />
                         {(deptSelection.length? deptSelection : allDepts).map((d) => (<Bar key={d} dataKey={d} barSize={22} fill={colorFor(d)} />))}
                       </BarChart>
@@ -660,15 +615,18 @@ export default function TPODashboard() {
                 </div>
               </div>
 
-              {/* 레이더 */}
+              {/* 레이더 (반경축 0~100 고정) */}
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
                   <h3 className="mb-3 text-lg font-semibold">TPO 레이더 그래프</h3>
                   <div className="h-[380px] w-full">
                     <ResponsiveContainer>
                       <RadarChart data={radarDataTPO}>
-                        <PolarGrid /><PolarAngleAxis dataKey="axis" /><PolarRadiusAxis />
-                        {(deptSelection.length ? deptSelection : allDepts).map((d) => (<Radar key={d} name={d} dataKey={d} stroke={colorFor(d)} fillOpacity={0} strokeWidth={2} />))}
+                        <PolarGrid /><PolarAngleAxis dataKey="axis" />
+                        <PolarRadiusAxis domain={[0, 100]} />
+                        {(deptSelection.length ? deptSelection : allDepts).map((d) => (
+                          <Radar key={d} name={d} dataKey={d} stroke={colorFor(d)} fillOpacity={0} strokeWidth={2} />
+                        ))}
                         <Legend /><Tooltip formatter={tooltipFmt} />
                       </RadarChart>
                     </ResponsiveContainer>
@@ -679,8 +637,11 @@ export default function TPODashboard() {
                   <div className="h-[380px] w-full">
                     <ResponsiveContainer>
                       <RadarChart data={radarDataPO}>
-                        <PolarGrid /><PolarAngleAxis dataKey="axis" /><PolarRadiusAxis />
-                        {(deptSelection.length ? deptSelection : allDepts).map((d) => (<Radar key={d} name={d} dataKey={d} stroke={colorFor(d)} fillOpacity={0} strokeWidth={2} />))}
+                        <PolarGrid /><PolarAngleAxis dataKey="axis" />
+                        <PolarRadiusAxis domain={[0, 100]} />
+                        {(deptSelection.length ? deptSelection : allDepts).map((d) => (
+                          <Radar key={d} name={d} dataKey={d} stroke={colorFor(d)} fillOpacity={0} strokeWidth={2} />
+                        ))}
                         <Legend /><Tooltip formatter={tooltipFmt} />
                       </RadarChart>
                     </ResponsiveContainer>
@@ -688,14 +649,15 @@ export default function TPODashboard() {
                 </div>
               </div>
 
-              {/* 시점별 성장 */}
+              {/* 시점별 성장 (Y축 40~100 고정) */}
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
                   <h3 className="mb-3 text-lg font-semibold">시점별 성장 (TPO 평균)</h3>
                   <div className="h-[360px] w-full">
                     <ResponsiveContainer>
                       <LineChart data={deptGrowthTPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" /><YAxis domain={[25, 'auto']} />
+                        <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" />
+                        <YAxis domain={[40, 100]} />
                         <Tooltip formatter={tooltipFmt} /><Legend />
                         {(deptSelection.length? deptSelection : allDepts).map((d) => (<Line key={d} type="monotone" dataKey={d} stroke={colorFor(d)} dot={true} strokeWidth={2} />))}
                       </LineChart>
@@ -707,7 +669,8 @@ export default function TPODashboard() {
                   <div className="h-[360px] w-full">
                     <ResponsiveContainer>
                       <LineChart data={deptGrowthPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
-                        <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" /><YAxis domain={[25, 'auto']} />
+                        <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" />
+                        <YAxis domain={[40, 100]} />
                         <Tooltip formatter={tooltipFmt} /><Legend />
                         {(deptSelection.length? deptSelection : allDepts).map((d) => (<Line key={d} type="monotone" dataKey={d} stroke={colorFor(d)} dot={true} strokeWidth={2} />))}
                       </LineChart>
@@ -752,11 +715,21 @@ export default function TPODashboard() {
 
                 <div className="flex flex-wrap items-start gap-3">
                   <div>
-                    <div className="text-sm font-medium mb-1">학번 선택(다중)</div>
+                    <div className="text-sm font-medium mb-1 flex items-center gap-2">
+                      <span>학번 선택(다중)</span>
+                      {/* 학번 부분검색 입력 */}
+                      <input
+                        type="text"
+                        value={studentSearch}
+                        onChange={(e) => setStudentSearch(e.target.value)}
+                        placeholder="학번 검색 (예: 20183)"
+                        className="ml-2 w-44 rounded-md border px-2 py-1 text-sm"
+                      />
+                    </div>
                     <select multiple size={8} className="min-w-[260px] rounded-lg border p-2 text-sm"
                       value={studentSelection}
                       onChange={(e) => { const opts = Array.from(e.target.selectedOptions).map((o) => o.value); setStudentSelection(opts); }}>
-                      {filteredStudentIds.map((sid) => (
+                      {shownStudentIds.map((sid) => (
                         <option key={String(sid)} value={String(sid)}>
                           {String(sid)} {gpaIndex.has(String(sid)) ? ` (GPA ${fmt2(gpaIndex.get(String(sid)))})` : ''}
                         </option>
@@ -764,8 +737,9 @@ export default function TPODashboard() {
                     </select>
                   </div>
                   <div className="text-xs text-gray-500 max-w-sm">
-                    Tip: 전공·성적·연도 필터를 조합한 뒤 학번을 선택하면 TPO·PO 막대와 성장 그래프가 동시에 표시됩니다. 
+                    Tip: 전공·성적·연도 필터를 조합한 뒤 학번을 선택하면 TPO·PO 막대와 성장 그래프가 동시에 표시됩니다.
                     <br /><b>(Ctrl 또는 Cmd 키로 다중 선택)</b>
+                    <br />검색창에 일부만 입력해도 해당 패턴이 포함된 학번이 목록에 표시됩니다.
                   </div>
                 </div>
               </div>
@@ -779,7 +753,8 @@ export default function TPODashboard() {
                       {studentBarTPO.length === 0 ? <EmptyChartMessage /> : (
                         <ResponsiveContainer>
                           <BarChart data={studentBarTPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
-                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} /><YAxis />
+                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
+                            <YAxis domain={[40, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />))}
                           </BarChart>
@@ -794,7 +769,8 @@ export default function TPODashboard() {
                       {studentBarPO.length === 0 ? <EmptyChartMessage /> : (
                         <ResponsiveContainer>
                           <BarChart data={studentBarPO} margin={{ top: 10, right: 10, left: 0, bottom: 30 }}>
-                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} /><YAxis />
+                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="metric" angle={-20} textAnchor="end" interval={0} height={60} />
+                            <YAxis domain={[40, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Bar key={sid} dataKey={sid} barSize={20} fill={colorFor(sid)} />))}
                           </BarChart>
@@ -813,7 +789,8 @@ export default function TPODashboard() {
                       {studentGrowthTPO.length === 0 ? <EmptyChartMessage /> : (
                         <ResponsiveContainer>
                           <LineChart data={studentGrowthTPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
-                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" /><YAxis />
+                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" />
+                            <YAxis domain={[40, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />))}
                           </LineChart>
@@ -827,7 +804,8 @@ export default function TPODashboard() {
                       {studentGrowthPO.length === 0 ? <EmptyChartMessage /> : (
                         <ResponsiveContainer>
                           <LineChart data={studentGrowthPO} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
-                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" /><YAxis />
+                            <CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="semester" />
+                            <YAxis domain={[40, 100]} />
                             <Tooltip formatter={tooltipFmt} /><Legend />
                             {studentSelection.map((sid) => (<Line key={sid} type="monotone" dataKey={sid} stroke={colorFor(sid)} dot={true} strokeWidth={2} />))}
                           </LineChart>
@@ -847,7 +825,7 @@ export default function TPODashboard() {
           <ol className="list-decimal pl-5 text-sm text-gray-700">
             <li>전공 미식별 레코드는 자동 제외되어 ‘단일전공’이 나타나지 않습니다.</li>
             <li>EE/전력/에너지/전기/Power 별칭은 모두 <b>전력응용시스템공학</b>으로 통일됩니다.</li>
-            <li>배포 후에는 <code>&v=버전값</code>을 붙여 새로고침하세요.</li>
+            <li>배포 후 최초 로딩 시 캐시를 비활성화하고 새로고침하면 최신 데이터가 보입니다.</li>
           </ol>
         </section>
       </div>
